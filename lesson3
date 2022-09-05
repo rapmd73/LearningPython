@@ -1,0 +1,50 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+# Ask for the closing price and give the stop loss and take profit prices.
+# stop loss and take profit in the form reward/risk.
+# R:R 2:1 means 2 times the reward for your risk
+
+def GetUserInput(question):
+    done=False
+    answer=''
+    while not done:
+        answer=input(question)
+        if answer!='':
+            try:
+                answer=float(answer)
+            except:
+                print("Enter a number.")
+            else:
+                done=True
+        else:
+            print("Enter a number.")
+
+    return answer
+
+# Ask for the closing price
+
+closingPrice=GetUserInput("What is the closing price? ")
+
+# Get the risk percentage
+
+risk=GetUserInput("What is the risk percentage (number only)? ")/100
+reward=GetUserInput("What is the reward ratio (number only)? ")*risk
+
+stopLoss=closingPrice-(closingPrice*risk)
+takeProfit=closingPrice+(closingPrice*reward)
+
+print("Closing Price:",closingPrice)
+print("Take Profit:",takeProfit)
+print("Stop Loss:",stopLoss)
+
+# Ask user how much they want to buy.
+# display how much they will profit or loose.
+
+buyAmount=GetUserInput("How much do you want to buy? ")
+
+win=buyAmount*reward
+loss=buyAmount*risk
+
+print("Profit:",win,"Winning Position:",buyAmount+win)
+print("Loss:",loss,"Loosing Position:",buyAmount-loss)

@@ -1,0 +1,16 @@
+# My first program.
+
+PipSize=0.0001
+
+# Ask user for bid and ask prices.
+
+bid=input("What is the bid price? ")
+ask=input("What is the ask price? ")
+
+# Calculate the spread or difference between bid and ask.
+
+spread=float(bid)-float(ask)
+
+print("Bid",bid)
+print("Ask",ask)
+print("Spread",spread,"Pips",spread/PipSize)

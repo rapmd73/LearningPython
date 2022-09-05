@@ -1,0 +1,42 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+import random
+import sys
+
+# Convience variables
+
+if len(sys.argv)>=3:
+    StartNumber=int(sys.argv[1])
+    EndNumber=int(sys.argv[2])
+else:
+    print("Need a starting and ending number")
+    sys.exit(0)
+
+# Get combination
+
+combination=random.randint(StartNumber,EndNumber)
+counter=0
+
+# Build trial list
+
+number=StartNumber
+NumberList=[]
+
+while number<EndNumber+1:
+    NumberList.append(number)
+    number+=1
+
+# Try to guess combination
+
+done=False
+while not done:
+    trial=random.randint(0,len(NumberList)-1)
+    guess=NumberList[trial]
+    if guess==combination:
+        done=True
+    else:
+        NumberList.pop(trial)
+        counter+=1
+
+print("Combination found:",trial,"It took ",counter,"tries.")
