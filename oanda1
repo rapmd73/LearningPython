@@ -5,6 +5,7 @@
 
 import sys
 import os
+import json
 
 # OANDA library functions
 
@@ -16,6 +17,10 @@ import oandapyV20.endpoints.pricing as v20Pricing
 import oandapyV20.endpoints.orders as v20Orders
 import oandapyV20.endpoints.positions as v20Positions
 import oandapyV20.contrib.requests as v20Requests
+
+def ShowStop(variable):
+    print(variable)
+    sys.exit(0)
 
 ###
 ### Main code base
