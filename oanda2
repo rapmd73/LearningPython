@@ -1,0 +1,151 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+# system imports
+
+import sys
+import os
+import json
+
+# OANDA library functions
+
+import oandapyV20
+import oandapyV20.endpoints
+import oandapyV20.endpoints.accounts as v20Accounts
+import oandapyV20.endpoints.instruments as v20Instruments
+import oandapyV20.endpoints.pricing as v20Pricing
+import oandapyV20.endpoints.orders as v20Orders
+import oandapyV20.endpoints.positions as v20Positions
+import oandapyV20.contrib.requests as v20Requests
+
+def ShowStop(variable):
+    print(variable)
+    sys.exit(0)
+
+# Load credentials from file
+
+def GetCredentials():
+    Credentials={}
+    if os.path.exists('credentials.txt'):
+        try:
+            FileHandle=open('credentials.txt','r')
+            Credentials['AccountID']=FileHandle.readline().strip()
+            Credentials['BearerToken']=FileHandle.readline().strip()
+            FileHandle.close()
+        except:
+            print("Please check your credentials.txt file, missing or malformed data.")
+            sys.exit(1)
+    else:
+        print("You must save your OANDA account crdentials to: credentials.txt")
+        sys.exit(1)
+
+    return Credentials
+
+# Login to the exchange
+
+def oandaLogin(Credentials):
+    try:
+        oanda=oandapyV20.API(access_token=Credentials['BearerToken'])
+    except Exception as err:
+        print("Error: ",str(err))
+        sys.exit(1)
+
+    return oanda
+
+# Handle all OANDA requests with a retry loop
+
+def oandaAPI(function,oanda,req):
+    retry=0
+    RetryLimit=3
+
+    done=False
+    while not done:
+        try:
+            result=oanda.request(req)
+        except Exception as err:
+            if retry>RetryLimit:
+                print(str(err))
+                sys.exit(1)
+            else:
+                em=str(err)
+                print(f"{function}: Retrying ({retry+1}), {em}")
+        else:
+            done=True
+        retry+=1
+
+    return result
+
+def GetMarkets(oanda,Credentials):
+    req=v20Accounts.AccountInstruments(accountID=Credentials['AccountID'])
+    results=oandaAPI("GetMarket",oanda,req)
+
+    return results
+
+# OANDA request to pull ticker data
+
+def GetTicker(oanda,Credentials,symbol):
+    params={ "instruments":symbol }
+    req=v20Pricing.PricingInfo(accountID=Credentials['AccountID'],params=params)
+    ticker=oandaAPI("GetTicker",oanda,req)
+
+    # Build the forex pair dictionary
+
+    ForexPair={}
+    ForexPair['Ask']=round(float(ticker['prices'][0]['asks'][0]['price']),5)
+    ForexPair['Bid']=round(float(ticker['prices'][0]['bids'][0]['price']),5)
+    ForexPair['Spread']=round(ForexPair['Ask']-ForexPair['Bid'],5)
+
+    return ForexPair
+
+###
+### Main code base
+###
+
+# Load credentials from file
+
+Credentials=GetCredentials()
+
+# Try to connect to the OANDA broker
+
+oanda=oandaLogin(Credentials)
+
+# Load the market data
+
+markets=GetMarkets(oanda,Credentials)
+
+# Collect Bid/Ask data from OANDA and calculate the spread.
+# Use a loop to iterate (count) through all of the available assets.
+
+marketList={}
+for cur in markets['instruments']:
+    asset=cur['name'].upper().replace('_','/')
+    marketList[asset]=GetTicker(oanda,Credentials,cur['name'])
+
+# Sort the dictionary based upon the spread. Remember the KEY/VALUE paradigm.
+# This is really the hardest line in the entire program.
+#
+# KEY       VALUE: yes, it can be any object, including a dictionary
+# USD/JPY   {'Ask': 142.661, 'Bid': 142.561, 'Spread': 0.1}
+#
+# lambda is a shorthand approach for the VALUE of the primary KEY,
+# USD/JPY in this example. x[1] is the VALUE of the USD/JPY or
+# {'Ask': 142.661, 'Bid': 142.561, 'Spread': 0.1}
+#
+# We explicitly want the Spread VALUE to be hoe we sort the ENTIRE main 
+# dictionary of markets.
+#
+# There is a conversion process that occurs internally to get this done right.
+# Its actually a very complicated process, so we need to explicitly tell python 
+# we want a dict(ionary) when all is said and done.
+
+marketList=dict(sorted(marketList.items(), key=lambda x: (x[1]['Spread'])))
+
+# Print some fancy headers to our table. We gott make it look nice.
+
+print(f"{'Asset':12}|{'Buy':>12}|{'Spread':>12}|{'Sell':>12}")
+print(f"{'-'*12}|{'-'*12}|{'-'*12}|{'-'*12}")
+
+# Print the actual table in a formated style
+
+for cur in marketList:
+    print(f"{cur:12} {marketList[cur]['Ask']:12.5f} {marketList[cur]['Spread']:12.5f} {marketList[cur]['Bid']:12.5f}")
