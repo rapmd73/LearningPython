@@ -2,7 +2,7 @@
 
 Welcome to the code repository for my Learning Python series on YouTube.
 
-[Learning Python Viseos](https://youtube.com/playlist?list=PLG2u5NlMjgy-WUbeyjGy_ZVOza4MK_AwT)
+[Learning Python Videos](https://youtube.com/playlist?list=PLG2u5NlMjgy-WUbeyjGy_ZVOza4MK_AwT)
 
 [Brief overview of OANDA](https://youtu.be/cwDn4lr-VmA)
 
