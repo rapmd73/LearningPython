@@ -1,0 +1,197 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+# system imports
+
+import sys
+import os
+
+# OANDA library functions
+
+import oandapyV20
+import oandapyV20.endpoints
+import oandapyV20.endpoints.accounts as v20Accounts
+import oandapyV20.endpoints.instruments as v20Instruments
+import oandapyV20.endpoints.pricing as v20Pricing
+import oandapyV20.endpoints.orders as v20Orders
+import oandapyV20.endpoints.positions as v20Positions
+import oandapyV20.contrib.requests as v20Requests
+
+# The Oanda class is actually a self emcompassing object that wraps all
+# of OANDA's functionality into a neat little package.
+
+class oanda:
+    # Define the special variables for this object. ALL variable WITHIN
+    # the class must have the prefix of self. self defines the internal
+    # mechanics that help isolate variables.
+
+    # Initialize the object and automatically get everything set up
+    def __init__(self,fname=None):
+        self.Credentials=self.GetCredentials(fname)
+        self.Broker=self.Login()
+        self.Markets=self.GetMarkets()
+
+# Load credentials from file
+
+    def GetCredentials(self,fname):
+        Credentials={}
+        if os.path.exists(fname):
+            try:
+                FileHandle=open(fname,'r')
+                Credentials['AccountID']=FileHandle.readline().strip()
+                Credentials['BearerToken']=FileHandle.readline().strip()
+                FileHandle.close()
+            except:
+                print("Please check your credentials.txt file, missing or malformed data.")
+                sys.exit(1)
+        else:
+            print("You must save your OANDA account crdentials to: credentials.txt")
+            sys.exit(1)
+
+        return Credentials
+
+    # Login to the exchange
+
+    def Login(self):
+        try:
+            oanda=oandapyV20.API(access_token=self.Credentials['BearerToken'])
+        except Exception as err:
+            print("Error: ",str(err))
+            sys.exit(1)
+
+        return oanda
+
+    # Handle all OANDA requests with a retry loop
+
+    def API(self,function,req):
+        retry=0
+        RetryLimit=3
+
+        done=False
+        while not done:
+            try:
+                result=self.Broker.request(req)
+            except Exception as err:
+                if retry>RetryLimit:
+                    print(str(err))
+                    sys.exit(1)
+                else:
+                    em=str(err)
+                    print(f"{function}: Retrying ({retry+1}), {em}")
+            else:
+                done=True
+            retry+=1
+
+        return result
+
+    def GetMarkets(self):
+        req=v20Accounts.AccountInstruments(accountID=self.Credentials['AccountID'])
+        results=self.API("GetMarket",req)
+
+        return results
+
+    # OANDA request to pull ticker data
+
+    def GetTicker(self,symbol):
+        params={ "instruments":symbol }
+        req=v20Pricing.PricingInfo(accountID=self.Credentials['AccountID'],params=params)
+        ticker=self.API("GetTicker",req)
+
+        # Build the forex pair dictionary
+
+        ForexPair={}
+        ForexPair['Ask']=round(float(ticker['prices'][0]['asks'][0]['price']),5)
+        ForexPair['Bid']=round(float(ticker['prices'][0]['bids'][0]['price']),5)
+        ForexPair['Spread']=round(ForexPair['Ask']-ForexPair['Bid'],5)
+
+        return ForexPair
+
+    def GetOrderBook(self,symbol):
+        req=v20Instruments.InstrumentsOrderBook(instrument=symbol,params={})
+        results=self.API("GetOrderBook",req)
+        return results['orderBook']['buckets']
+
+###
+### Main code base
+###
+
+if len(sys.argv)>2:
+    pair=sys.argv[1].upper().replace('/','_')
+    depth=int(sys.argv[2])
+else:
+    print("Asset and orderbook depth must be given.")
+    sys.exit(1)
+
+Blank=" "
+
+# Load credentials from file
+
+broker=oanda("credentials.txt")
+
+markets=broker.Markets
+
+# Get ticker
+
+ticker=broker.GetTicker(pair)
+
+BuyPrice=ticker['Ask']
+SellPrice=ticker['Bid']
+
+# Get order book
+
+ob=broker.GetOrderBook(pair)
+
+lp=0
+sp=0
+l=len(ob)
+buyIDX=0
+sellIDX=0
+
+obl=[]
+pp=0
+idx=0
+for cur in ob:
+    buy=(float(cur['longCountPercent'])/100)*l
+    price=round(float(cur['price']),4)
+    sell=(float(cur['shortCountPercent'])/100)*l
+
+    cp=price
+    if pp<BuyPrice and BuyPrice<=cp:
+        buyIDX=idx-1
+    if pp<SellPrice and SellPrice<=cp:
+        sellIDX=idx
+
+    lp+=buy
+    sp+=sell
+
+    obl.append([buy,price,sell])
+    pp=cp
+    idx+=1
+
+print(f"{Blank:3} {'Volume':>12} {'Buy':>12} {'Sell':>12} {'Volume':>12} {'Spread':>12}")
+print(f"{Blank:3} {Blank:12} {BuyPrice:12.4f} {SellPrice:12.4f} {Blank:12} {BuyPrice-SellPrice:12.4f}")
+print(f"{'-'*3:3} {'-'*12:12} {'-'*12:12} {'-'*12:12} {'-'*12:12} {'-'*12:12}")
+
+c=1
+maxBorders=0
+maxSorders=0
+maxBprice=0
+maxSprice=0
+for i in range(depth):
+    buy=obl[buyIDX-i][0]
+    bprice=obl[buyIDX-i][1]
+    sprice=obl[sellIDX+i][1]
+    sell=obl[sellIDX+i][2]
+    spread=sprice-bprice
+    if buy>maxBorders:
+        maxBorders=buy
+        maxBprice=bprice
+    if sell>maxSorders:
+        maxSorders=sell
+        maxSprice=sprice
+    print(f"{c:3} {buy:12.4f} {bprice:12.4f} {sprice:12.4f} {sell:12.4f} {spread:12.4f}")
+    c+=1
+
+spread=maxSprice-maxBprice
+print(f"{'-'*3:3} {'-'*12:12} {'-'*12:12} {'-'*12:12} {'-'*12:12} {'-'*12:12}")
+print(f"MAX {maxBorders:12.4f} {maxBprice:12.4f} {maxSprice:12.4f} {maxSorders:12.4f} {spread:12.4f}")
