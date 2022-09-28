@@ -5,16 +5,19 @@
 
 import sys
 import os
+import math
 
 # OANDA library functions
 
 import oandapyV20
 import oandapyV20.endpoints
+import oandapyV20.contrib
 import oandapyV20.endpoints.accounts as v20Accounts
 import oandapyV20.endpoints.instruments as v20Instruments
 import oandapyV20.endpoints.pricing as v20Pricing
 import oandapyV20.endpoints.orders as v20Orders
 import oandapyV20.endpoints.positions as v20Positions
+import oandapyV20.endpoints.trades as v20Trades
 import oandapyV20.contrib.requests as v20Requests
 
 # The Oanda class is actually a self emcompassing object that wraps all
@@ -106,20 +109,85 @@ class oanda:
 
         return ForexPair
 
+    # Read the order book
+
     def GetOrderBook(self,symbol):
         req=v20Instruments.InstrumentsOrderBook(instrument=symbol,params={})
         results=self.API("GetOrderBook",req)
         return results['orderBook']['buckets']
 
+    # Read the currnt open positions
+
+    def GetOpenPositions(self,symbol):
+        symbol=symbol.replace('/','_')
+        params={"instruments":symbol }
+
+        req=v20Trades.TradesList(self.Credentials['AccountID'],params=params)
+        results=self.API("GetOpenPosiions",req)
+        return results['trades']
+
+    # Place order. Return order ID and DON'T wait on limit orders. That needs
+    # to be a separate functionality.
+    #
+    # Arg sequence:
+    #   symbol, type, side (action), amount, price
+    #
+    # PlaceOrder(exchange, Active, pair=pair, orderType=orderType, action=action, amount=amount, 
+    #   close=close, ReduceOnly=ReduceOnly, LedgerNote=ledgerNote)
+    #
+    # IMPORTANT: buy and sell are TWO DIFFERENT END POINTS
+    #
+    # Market orders are fill or kill (FOK) for timeInForce by default. GTC will NOT work.
+
+    def PlaceOrder(self,pair,orderType,action,amount,price):
+        pair=pair.replace('/','_')
+        orderType=orderType.upper()
+        action=action.lower()
+
+        if(action=='buy'):
+            order={}
+            if orderType=='LIMIT':
+                order['price']=str(price)
+                order['timeInForce']='GTC'
+            order['units']=str(amount)
+            order['instrument']=pair
+            order['type']=orderType
+            order['positionFill']='DEFAULT'
+            params={}
+            params['order']=order
+
+            res=v20Orders.OrderCreate(self.Credentials['AccountID'],data=params)
+            results=self.API("OrderCreate",res)
+        elif (action=='sell'):
+            params={}
+            if str(amount).upper()!='ALL':
+                # amount is STR, need float for abs()
+                amount=float(amount)
+                if float(amount)>=0:
+                    params['longUnits']=str(math.floor(abs(amount)))
+                else:
+                    params['shortUnits']=str(math.floor(abs(amount)))
+            else:
+                params['longUnits']="ALL"
+            res=v20Positions.PositionClose(self.Credentials['AccountID'],instrument=pair,data=params)
+            results=self.API("PositionClose",res)
+        else:
+            print("PlaceOrder","Action is neither BUY nor SELL")
+            sys.exit(1)
+        return results
+
 ###
-### Main code base
+### Main code base. Place order on exchange
 ###
 
-if len(sys.argv)>2:
+if len(sys.argv)>5:
     pair=sys.argv[1].upper().replace('/','_')
-    depth=int(sys.argv[2])
+    orderType=sys.argv[2].upper()
+    action=sys.argv[3].lower()
+    amount=sys.argv[4]
+    price=sys.argv[5]
 else:
-    print("Asset and orderbook depth must be given.")
+    print("Asset, ordertype, action, units, and price must be given.")
     sys.exit(1)
 
 Blank=" "
@@ -127,7 +195,6 @@ Blank=" "
 # Load credentials from file
 
 broker=oanda("credentials.txt")
-
 markets=broker.Markets
 
 # Get ticker
@@ -137,61 +204,22 @@ ticker=broker.GetTicker(pair)
 BuyPrice=ticker['Ask']
 SellPrice=ticker['Bid']
 
-# Get order book
+if orderType=='MARKET':
+    if action=='buy':
+        ActPrice=BuyPrice
+    else:
+        ActPrice=SellPrice
+else:
+    ActPrice=float(price)
+result=broker.PlaceOrder(pair=pair,orderType=orderType,action=action,amount=amount,price=ActPrice)
 
-ob=broker.GetOrderBook(pair)
+openOrders=broker.GetOpenPositions(pair)
 
-lp=0
-sp=0
-l=len(ob)
-buyIDX=0
-sellIDX=0
-
-obl=[]
-pp=0
-idx=0
-for cur in ob:
-    buy=(float(cur['longCountPercent'])/100)*l
-    price=round(float(cur['price']),4)
-    sell=(float(cur['shortCountPercent'])/100)*l
-
-    cp=price
-    if pp<BuyPrice and BuyPrice<=cp:
-        buyIDX=idx-1
-    if pp<SellPrice and SellPrice<=cp:
-        sellIDX=idx
-
-    lp+=buy
-    sp+=sell
-
-    obl.append([buy,price,sell])
-    pp=cp
-    idx+=1
-
-print(f"{Blank:3} {'Volume':>12} {'Buy':>12} {'Sell':>12} {'Volume':>12} {'Spread':>12}")
-print(f"{Blank:3} {Blank:12} {BuyPrice:12.4f} {SellPrice:12.4f} {Blank:12} {BuyPrice-SellPrice:12.4f}")
-print(f"{'-'*3:3} {'-'*12:12} {'-'*12:12} {'-'*12:12} {'-'*12:12} {'-'*12:12}")
-
-c=1
-maxBorders=0
-maxSorders=0
-maxBprice=0
-maxSprice=0
-for i in range(depth):
-    buy=obl[buyIDX-i][0]
-    bprice=obl[buyIDX-i][1]
-    sprice=obl[sellIDX+i][1]
-    sell=obl[sellIDX+i][2]
-    spread=sprice-bprice
-    if buy>maxBorders:
-        maxBorders=buy
-        maxBprice=bprice
-    if sell>maxSorders:
-        maxSorders=sell
-        maxSprice=sprice
-    print(f"{c:3} {buy:12.4f} {bprice:12.4f} {sprice:12.4f} {sell:12.4f} {spread:12.4f}")
-    c+=1
-
-spread=maxSprice-maxBprice
-print(f"{'-'*3:3} {'-'*12:12} {'-'*12:12} {'-'*12:12} {'-'*12:12} {'-'*12:12}")
-print(f"MAX {maxBorders:12.4f} {maxBprice:12.4f} {maxSprice:12.4f} {maxSorders:12.4f} {spread:12.4f}")
+for o in openOrders:
+    iu=int(o['currentUnits'])
+    price=float(o['price'])
+    if price>=0:
+        side='Long'
+    else:
+        side='Shrt'
+    print(f"{o['openTime']} {o['id']:8} {side:4} {o['state']:7} {iu:16.8f} {price:16.8f}")
